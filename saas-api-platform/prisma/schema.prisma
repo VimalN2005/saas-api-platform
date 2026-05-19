@@ -1,0 +1,184 @@
+// This is your Prisma schema file
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ===== ORGANIZATIONS (TENANTS) =====
+model Organization {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  domain      String?  @unique
+  logoUrl     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members     OrgMember[]
+  invites     OrgInvite[]
+  apiKeys     ApiKey[]
+  subscription Subscription?
+  usageLogs   UsageLog[]
+
+  @@map("organizations")
+}
+
+// ===== USERS =====
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  passwordHash  String?
+  name          String
+  avatarUrl     String?
+  emailVerified Boolean   @default(false)
+  verifyToken   String?
+  resetToken    String?
+  resetExpires  DateTime?
+  oauthProvider String?
+  oauthId       String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  memberships   OrgMember[]
+  refreshTokens RefreshToken[]
+
+  @@map("users")
+}
+
+// ===== ORG MEMBERS =====
+model OrgMember {
+  id             String       @id @default(uuid())
+  role           MemberRole   @default(MEMBER)
+  joinedAt       DateTime     @default(now())
+  userId         String
+  organizationId String
+
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@map("org_members")
+}
+
+enum MemberRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+// ===== INVITES =====
+model OrgInvite {
+  id             String       @id @default(uuid())
+  email          String
+  role           MemberRole   @default(MEMBER)
+  token          String       @unique @default(uuid())
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  organizationId String
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("org_invites")
+}
+
+// ===== REFRESH TOKENS =====
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  expiresAt DateTime
+  userId    String
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("refresh_tokens")
+}
+
+// ===== API KEYS =====
+model ApiKey {
+  id             String       @id @default(uuid())
+  name           String
+  keyHash        String       @unique
+  keyPrefix      String
+  scopes         String[]     @default([])
+  lastUsedAt     DateTime?
+  expiresAt      DateTime?
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  organizationId String
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  usageLogs      UsageLog[]
+
+  @@map("api_keys")
+}
+
+// ===== SUBSCRIPTIONS =====
+model Subscription {
+  id                   String             @id @default(uuid())
+  stripeCustomerId     String             @unique
+  stripeSubscriptionId String?            @unique
+  plan                 PlanType           @default(FREE)
+  status               SubscriptionStatus @default(ACTIVE)
+  currentPeriodStart   DateTime?
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean            @default(false)
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  organizationId       String             @unique
+
+  organization         Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("subscriptions")
+}
+
+enum PlanType {
+  FREE
+  PRO
+  ENTERPRISE
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  TRIALING
+  INCOMPLETE
+}
+
+// ===== USAGE LOGS =====
+model UsageLog {
+  id             String       @id @default(uuid())
+  endpoint       String
+  method         String
+  statusCode     Int
+  responseTimeMs Int
+  timestamp      DateTime     @default(now())
+  organizationId String
+  apiKeyId       String?
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  apiKey         ApiKey?      @relation(fields: [apiKeyId], references: [id])
+
+  @@index([organizationId, timestamp])
+  @@map("usage_logs")
+}
+
+// ===== WEBHOOK EVENTS =====
+model WebhookEvent {
+  id          String   @id @default(uuid())
+  provider    String
+  eventType   String
+  payload     Json
+  processed   Boolean  @default(false)
+  processedAt DateTime?
+  error       String?
+  createdAt   DateTime @default(now())
+
+  @@map("webhook_events")
+}
